@@ -44,6 +44,8 @@ instant playback should use a secondary renderer such as libmpv/mpv later.
   `AVPlayerLayer`.
 - Added always-visible SwiftUI playback controls for play/pause, seek, mute,
   volume, playback speed, subtitles, and full screen.
+- Added double-click full-screen toggling on the video surface and custom top
+  drag region, including restoring from full screen back to the previous window.
 - Added a SwiftUI empty state, preparing state, error banner, drop target, and
   top toolbar.
 - Added a generated `AppIcon.icns` and wired it into the staged app bundle.
@@ -249,8 +251,8 @@ Inspect:
 
 - Empty state alignment.
 - Toolbar title and compatibility note truncation.
-- SwiftUI controls: play/pause, timeline, mute, volume, speed, subtitle menu, and
-  full screen.
+- SwiftUI controls: play/pause, timeline, mute, volume, speed, subtitle menu,
+  full screen, and double-click full-screen restore.
 - Preparing overlay during MKV conversion.
 - Error banner when FFmpeg is missing or conversion fails.
 - Full-screen behavior.

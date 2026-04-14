@@ -36,7 +36,8 @@ embedded mpv/libmpv renderer.
 - `Sources/TahoePlayer/Stores`: playback state and actions.
 - `Sources/TahoePlayer/Services`: media compatibility and preparation.
 - `Sources/TahoePlayer/Views`: AVPlayerLayer surface and SwiftUI controls/layout,
-  including mute, volume, speed, and subtitle controls.
+  including double-click full-screen restore, mute, volume, speed, and subtitle
+  controls.
 - `Resources/AppIcon.icns`: bundled macOS app icon.
 - `script/generate_app_icon.swift`: deterministic icon generator.
 - `Docs/LearningPlan.md`: scoped Apple-docs learning plan and practice problems.

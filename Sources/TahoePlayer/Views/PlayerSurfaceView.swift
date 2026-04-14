@@ -7,10 +7,12 @@ import SwiftUI
 /// SwiftUI owns transport controls so they remain visible and predictable.
 struct PlayerSurfaceView: NSViewRepresentable {
     let player: AVPlayer
+    let onDoubleClick: () -> Void
 
     func makeNSView(context: Context) -> PlayerLayerView {
         let view = PlayerLayerView()
         view.playerLayer.player = player
+        view.onDoubleClick = onDoubleClick
         return view
     }
 
@@ -18,11 +20,13 @@ struct PlayerSurfaceView: NSViewRepresentable {
         if nsView.playerLayer.player !== player {
             nsView.playerLayer.player = player
         }
+        nsView.onDoubleClick = onDoubleClick
     }
 }
 
 final class PlayerLayerView: NSView {
     let playerLayer = AVPlayerLayer()
+    var onDoubleClick: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -47,5 +51,14 @@ final class PlayerLayerView: NSView {
         CATransaction.setDisableActions(true)
         playerLayer.frame = bounds
         CATransaction.commit()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            onDoubleClick?()
+            return
+        }
+
+        super.mouseDown(with: event)
     }
 }

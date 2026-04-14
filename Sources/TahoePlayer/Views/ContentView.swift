@@ -12,7 +12,9 @@ struct ContentView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            PlayerSurfaceView(player: store.player)
+            PlayerSurfaceView(player: store.player) {
+                store.toggleFullScreen()
+            }
                 .ignoresSafeArea()
 
             if !store.hasMedia && !store.isPreparing {
@@ -63,6 +65,12 @@ struct ContentView: View {
             Color.clear
                 .frame(height: 46)
                 .contentShape(Rectangle())
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded {
+                            store.toggleFullScreen()
+                        }
+                )
                 .gesture(WindowDragGesture())
                 .allowsWindowActivationEvents(true)
         }
