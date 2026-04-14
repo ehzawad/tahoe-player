@@ -3,7 +3,8 @@ import AVFoundation
 import QuartzCore
 import SwiftUI
 
-/// Minimal AppKit bridge for rendering AVPlayer video.
+/// Minimal AppKit bridge for rendering AVPlayer video and forwarding
+/// double-click full-screen toggles to SwiftUI.
 /// SwiftUI owns transport controls so they remain visible and predictable.
 struct PlayerSurfaceView: NSViewRepresentable {
     let player: AVPlayer

@@ -1,6 +1,6 @@
 # Tahoe Player
 
-Tahoe Player is a focused macOS 26.4 SwiftUI video player for local files. It
+Tahoe Player is a focused macOS 26 (Tahoe) SwiftUI video player for local files. It
 uses native AVFoundation playback for MP4/MOV and prepares unsupported local
 containers such as MKV into temporary MP4 files with FFmpeg.
 

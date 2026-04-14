@@ -37,11 +37,21 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         preparer.cancelPreparation()
     }
 
-    func seek(to seconds: Double) {
-        guard duration > 0 else { return }
+    func seek(to seconds: Double, completion: @escaping @MainActor () -> Void) {
+        guard duration > 0 else {
+            Task { @MainActor in
+                completion()
+            }
+            return
+        }
+
         let clamped = max(0, min(seconds, duration))
         let time = CMTime(seconds: clamped, preferredTimescale: 600)
-        avPlayer.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        avPlayer.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+            Task { @MainActor in
+                completion()
+            }
+        }
     }
 
     @MainActor

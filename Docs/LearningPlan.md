@@ -64,7 +64,7 @@ The conceptual stack is:
   presentation; the player controls transport and track selection.
 - **AVPlayerLayer** renders video in a small `NSViewRepresentable`
   bridge while SwiftUI owns the transport controls.
-- The SwiftUI controls provide play/pause, scrubber, volume, speed,
+- The SwiftUI controls provide play/pause, scrubber, mute, volume, speed,
   subtitle selection, and full-screen actions on a Liquid Glass surface.
 - The **PlaybackEngine protocol** decouples the UI from a specific
   decoder. The app ships with AVFoundation; a future engine (libmpv,
@@ -176,8 +176,8 @@ Sources/TahoePlayer/
 │   └── MediaFile.swift                — source/playback URL, title, compat note
 ├── Views/
 │   ├── ContentView.swift              — player surface, toolbar, overlays, drop
-│   ├── PlaybackControlsView.swift     — transport, volume, speed, subtitles
-│   └── PlayerSurfaceView.swift        — NSViewRepresentable → AVPlayerLayer
+│   ├── PlaybackControlsView.swift     — transport, mute, volume, speed, subtitles
+│   └── PlayerSurfaceView.swift        — NSViewRepresentable → AVPlayerLayer, double-click
 └── Support/
     └── Formatters.swift               — time string formatting
 ```

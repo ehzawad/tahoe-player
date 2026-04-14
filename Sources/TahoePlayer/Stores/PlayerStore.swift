@@ -78,6 +78,19 @@ final class PlayerStore {
         installPlayerStatusObserver()
     }
 
+    isolated deinit {
+        if let timeObserver {
+            engine.avPlayer.removeTimeObserver(timeObserver)
+        }
+
+        if let itemEndObserver {
+            NotificationCenter.default.removeObserver(itemEndObserver)
+        }
+
+        itemStatusObservation?.invalidate()
+        timeControlStatusObservation?.invalidate()
+    }
+
     // MARK: – File Opening
 
     func presentOpenPanel() {
@@ -118,6 +131,7 @@ final class PlayerStore {
             clearItemObservers()
 
             let prepared = try await engine.load(url: url)
+            guard loadingURL == url else { return }
 
             media = MediaFile(
                 sourceURL: prepared.sourceURL,
@@ -136,6 +150,7 @@ final class PlayerStore {
 
             play()
         } catch {
+            guard loadingURL == url else { return }
             isPreparing = false
             resetSubtitleTracks()
             errorMessage = error.localizedDescription
@@ -195,8 +210,11 @@ final class PlayerStore {
     }
 
     func finishSeek() {
-        seek(to: currentTime)
-        isScrubbing = false
+        let target = clampedPlaybackTime(currentTime)
+        currentTime = target
+        engine.seek(to: target) { [weak self] in
+            self?.isScrubbing = false
+        }
     }
 
     func seek(to seconds: Double) {

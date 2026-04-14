@@ -14,10 +14,16 @@ protocol PlaybackEngine: AnyObject {
     @MainActor func load(url: URL) async throws -> PreparedMedia
 
     func pause()
-    func seek(to seconds: Double)
+    func seek(to seconds: Double, completion: @escaping @MainActor () -> Void)
 
     /// Runtime probe: can this backend handle the given URL?
     @MainActor func canAttemptPlayback(of url: URL) async -> Bool
 
     var duration: Double { get }
+}
+
+extension PlaybackEngine {
+    func seek(to seconds: Double) {
+        seek(to: seconds) {}
+    }
 }

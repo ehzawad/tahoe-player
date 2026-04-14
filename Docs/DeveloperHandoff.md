@@ -70,9 +70,9 @@ instant playback should use a secondary renderer such as libmpv/mpv later.
   playable checks and FFmpeg preparation.
 - `Sources/TahoePlayer/Views/ContentView.swift`: main SwiftUI UI and toolbar.
 - `Sources/TahoePlayer/Views/PlayerSurfaceView.swift`: `AVPlayerLayer`
-  AppKit bridge.
+  AppKit bridge and double-click full-screen forwarding.
 - `Sources/TahoePlayer/Views/PlaybackControlsView.swift`: SwiftUI transport,
-  volume, speed, subtitle, and full-screen controls.
+  mute, volume, speed, subtitle, and full-screen controls.
 - `Resources/AppIcon.icns`: bundled macOS app icon.
 - `script/generate_app_icon.swift`: deterministic icon generator.
 - `script/build_and_run.sh`: canonical local build/run entrypoint.
@@ -279,10 +279,9 @@ Inspect:
    enabled.
 3. Add unit tests for formatting and media preparation error handling.
 4. Add audio-track selection from AVFoundation audible media selection groups.
-5. Add cache cleanup for old deterministic prepared MP4 files.
-6. Decide whether the long-term backend should be libmpv for instant broad MKV
+5. Decide whether the long-term backend should be libmpv for instant broad MKV
    playback without prepare-then-play.
-7. If libmpv is selected, implement it behind `PlaybackEngine` instead of
+6. If libmpv is selected, implement it behind `PlaybackEngine` instead of
    spreading backend conditionals through SwiftUI views.
 
 ## Apple Documentation Used

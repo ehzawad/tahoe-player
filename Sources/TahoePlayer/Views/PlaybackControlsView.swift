@@ -6,101 +6,95 @@ struct PlaybackControlsView: View {
     private let speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
     var body: some View {
-        GlassEffectContainer(spacing: 10) {
-            VStack(spacing: 12) {
-                timeline
+        VStack(spacing: 12) {
+            timeline
 
-                HStack(spacing: 12) {
-                    Button {
-                        store.skip(by: -10)
-                    } label: {
-                        Label("Back 10 Seconds", systemImage: "gobackward.10")
-                            .labelStyle(.iconOnly)
-                    }
-                    .keyboardShortcut(.leftArrow, modifiers: .command)
-
-                    Button {
-                        store.togglePlayback()
-                    } label: {
-                        Label(
-                            store.isPlaying ? "Pause" : "Play",
-                            systemImage: store.isPlaying ? "pause.fill" : "play.fill"
-                        )
+            HStack(spacing: 12) {
+                Button {
+                    store.skip(by: -10)
+                } label: {
+                    Label("Back 10 Seconds", systemImage: "gobackward.10")
                         .labelStyle(.iconOnly)
-                        .font(.title3.weight(.semibold))
-                    }
-                    .keyboardShortcut(.space, modifiers: [])
-                    .buttonStyle(.glassProminent)
+                }
 
-                    Button {
-                        store.skip(by: 10)
-                    } label: {
-                        Label("Forward 10 Seconds", systemImage: "goforward.10")
-                            .labelStyle(.iconOnly)
-                    }
-                    .keyboardShortcut(.rightArrow, modifiers: .command)
+                Button {
+                    store.togglePlayback()
+                } label: {
+                    Label(
+                        store.isPlaying ? "Pause" : "Play",
+                        systemImage: store.isPlaying ? "pause.fill" : "play.fill"
+                    )
+                    .labelStyle(.iconOnly)
+                    .font(.title3.weight(.semibold))
+                }
+                .buttonStyle(.glassProminent)
 
-                    Divider()
-                        .frame(height: 24)
-
-                    Button {
-                        store.toggleMute()
-                    } label: {
-                        Label(
-                            store.isMuted ? "Unmute" : "Mute",
-                            systemImage: volumeSystemImage
-                        )
+                Button {
+                    store.skip(by: 10)
+                } label: {
+                    Label("Forward 10 Seconds", systemImage: "goforward.10")
                         .labelStyle(.iconOnly)
+                }
+
+                Divider()
+                    .frame(height: 24)
+
+                Button {
+                    store.toggleMute()
+                } label: {
+                    Label(
+                        store.isMuted ? "Unmute" : "Mute",
+                        systemImage: volumeSystemImage
+                    )
+                    .labelStyle(.iconOnly)
+                }
+
+                Slider(value: $store.volume, in: 0...1)
+                    .frame(width: 112)
+                    .accessibilityLabel("Volume")
+
+                Picker("Speed", selection: $store.playbackRate) {
+                    ForEach(speedOptions, id: \.self) { speed in
+                        Text(speedLabel(speed))
+                            .tag(speed)
                     }
-                    .keyboardShortcut("m", modifiers: [])
+                }
+                .labelsHidden()
+                .frame(width: 92)
 
-                    Slider(value: $store.volume, in: 0...1)
-                        .frame(width: 112)
-                        .accessibilityLabel("Volume")
-
-                    Picker("Speed", selection: $store.playbackRate) {
-                        ForEach(speedOptions, id: \.self) { speed in
-                            Text(speedLabel(speed))
-                                .tag(speed)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 92)
-
-                    if store.subtitleTracks.count > 1 {
-                        Menu {
-                            ForEach(store.subtitleTracks) { track in
-                                Button {
-                                    store.selectSubtitle(id: track.id)
-                                } label: {
-                                    if track.id == store.selectedSubtitleID {
-                                        Label(track.title, systemImage: "checkmark")
-                                    } else {
-                                        Text(track.title)
-                                    }
+                if store.subtitleTracks.count > 1 {
+                    Menu {
+                        ForEach(store.subtitleTracks) { track in
+                            Button {
+                                store.selectSubtitle(id: track.id)
+                            } label: {
+                                if track.id == store.selectedSubtitleID {
+                                    Label(track.title, systemImage: "checkmark")
+                                } else {
+                                    Text(track.title)
                                 }
                             }
-                        } label: {
-                            Label(store.selectedSubtitleTitle, systemImage: "captions.bubble")
                         }
-                        .frame(width: 148)
-                    }
-
-                    Button {
-                        store.toggleFullScreen()
                     } label: {
-                        Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
-                            .labelStyle(.iconOnly)
+                        Label(store.selectedSubtitleTitle, systemImage: "captions.bubble")
                     }
-                    .keyboardShortcut("f", modifiers: [.command, .control])
+                    .frame(width: 148)
                 }
-                .buttonStyle(.glass)
-                .controlSize(.large)
+
+                Button {
+                    store.toggleFullScreen()
+                } label: {
+                    Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                        .labelStyle(.iconOnly)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .control])
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+            .buttonStyle(.glass)
+            .controlSize(.large)
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
     }
 
     private var timeline: some View {
