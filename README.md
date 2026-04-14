@@ -38,6 +38,61 @@ swift test
 - The floating playback controls can be dragged by the handle and reset with a
   double-click on that handle.
 
+## System Design
+
+```mermaid
+flowchart LR
+  subgraph App["App Shell"]
+    AppEntry["TahoePlayerApp / AppDelegate"]
+    Content["ContentView"]
+    Inputs["Open Panel / Drag & Drop / Menu Commands"]
+    Controls["FloatingPlaybackControlsOverlay / PlaybackControlsView"]
+    Surface["PlayerSurfaceView"]
+  end
+
+  subgraph State["State + Routing"]
+    Store["PlayerStore"]
+  end
+
+  subgraph AVF["AVFoundation Path"]
+    AVEngine["AVFoundationPlaybackEngine"]
+    Prep["MediaPreparationService"]
+    AVPlayerNode["AVPlayer / AVPlayerItem"]
+    AVLayer["AVPlayerLayer"]
+  end
+
+  subgraph MPV["libmpv Path"]
+    MPVEngine["MPVPlaybackEngine"]
+    MPVState["MPVPlaybackState"]
+    MPVRender["libmpv Render Context / NSOpenGLView"]
+  end
+
+  AppEntry --> Content
+  Inputs --> Store
+  Content <--> Store
+  Controls <--> Store
+  Content --> Controls
+  Content --> Surface
+
+  Store -->|"MP4 / MOV and other Apple-native media"| AVEngine
+  Store -->|"MKV / WebM / AVI / TS / M2TS / FLV"| MPVEngine
+
+  AVEngine -->|"native playback"| AVPlayerNode
+  AVEngine -->|"fallback remux / transcode"| Prep
+  Prep --> AVPlayerNode
+  AVPlayerNode --> AVLayer
+  AVLayer --> Surface
+
+  MPVEngine <--> MPVState
+  MPVEngine --> MPVRender
+  MPVRender --> Surface
+```
+
+At runtime, `PlayerStore` is the switchboard. It chooses the playback backend,
+keeps UI state in sync, and feeds the surface and floating controls. The
+AVFoundation path uses `MediaPreparationService` only when a file needs a
+temporary MP4; broad containers go straight to libmpv.
+
 ## Project Shape
 
 - `Sources/TahoePlayer/App`: app entry point, commands, AppDelegate.
