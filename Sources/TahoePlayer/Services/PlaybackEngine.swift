@@ -1,22 +1,22 @@
 import AVFoundation
 
-/// Contract for a media playback backend.
+/// Contract for playback backends that expose an `AVPlayer`.
 ///
-/// The app ships with AVFoundation; this protocol exists so a
-/// second decoder (libmpv, VLCKit, …) can slot in later without
-/// rewiring the UI layer.
+/// Tahoe Player also has a separate `MPVPlaybackEngine` for broad-format
+/// playback while the libmpv renderer still requires its own surface and event
+/// loop.
 protocol PlaybackEngine: AnyObject {
-    /// The underlying AVPlayer. Future non-AVFoundation backends
-    /// would supply their own rendering surface instead.
+    /// The `AVPlayer` consumed by the AVFoundation rendering path.
     var avPlayer: AVPlayer { get }
 
-    /// Load a media file, preparing it if necessary (e.g. FFmpeg remux).
+    /// Load a media file for the AVFoundation path, preparing a fallback MP4
+    /// when needed.
     @MainActor func load(url: URL) async throws -> PreparedMedia
 
     func pause()
     func seek(to seconds: Double, completion: @escaping @MainActor () -> Void)
 
-    /// Runtime probe: can this backend handle the given URL?
+    /// Runtime probe for the AVFoundation path.
     @MainActor func canAttemptPlayback(of url: URL) async -> Bool
 
     var duration: Double { get }

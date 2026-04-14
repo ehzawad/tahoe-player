@@ -11,6 +11,20 @@ let package = Package(
         .executable(name: "TahoePlayer", targets: ["TahoePlayer"])
     ],
     targets: [
-        .executableTarget(name: "TahoePlayer")
+        .executableTarget(
+            name: "TahoePlayer",
+            dependencies: ["CMpv"]
+        ),
+        .testTarget(
+            name: "TahoePlayerTests",
+            dependencies: ["TahoePlayer"]
+        ),
+        .systemLibrary(
+            name: "CMpv",
+            pkgConfig: "mpv",
+            providers: [
+                .brew(["mpv"])
+            ]
+        )
     ]
 )
