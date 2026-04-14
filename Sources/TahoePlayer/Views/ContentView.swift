@@ -46,6 +46,7 @@ struct ContentView: View {
         }
         .animation(.snappy(duration: 0.22), value: store.hasMedia)
         .animation(.snappy(duration: 0.22), value: store.isPreparing)
+        .animation(.snappy(duration: 0.22), value: store.errorMessage)
         .frame(minWidth: 760, minHeight: 430)
         .onAppear {
             guard !didConstrainWindow else { return }

@@ -42,10 +42,11 @@ instant playback should use a secondary renderer such as libmpv/mpv later.
     `~/Library/Caches/TahoePlayer/Prepared`.
 - Added `PlayerSurfaceView`, an `NSViewRepresentable` wrapper around
   `AVPlayerLayer`.
-- Added always-visible SwiftUI playback controls for play/pause, seek, volume,
-  playback speed, subtitles, and full screen.
+- Added always-visible SwiftUI playback controls for play/pause, seek, mute,
+  volume, playback speed, subtitles, and full screen.
 - Added a SwiftUI empty state, preparing state, error banner, drop target, and
   top toolbar.
+- Added a generated `AppIcon.icns` and wired it into the staged app bundle.
 - Added `Docs/LearningPlan.md` with the scoped Apple documentation trail,
   learning topics, code map, questions, and exercises.
 - Added `README.md` with run instructions and format support notes.
@@ -70,6 +71,8 @@ instant playback should use a secondary renderer such as libmpv/mpv later.
   AppKit bridge.
 - `Sources/TahoePlayer/Views/PlaybackControlsView.swift`: SwiftUI transport,
   volume, speed, subtitle, and full-screen controls.
+- `Resources/AppIcon.icns`: bundled macOS app icon.
+- `script/generate_app_icon.swift`: deterministic icon generator.
 - `script/build_and_run.sh`: canonical local build/run entrypoint.
 
 ## How To Run
@@ -178,12 +181,27 @@ Current FFmpeg preparation behavior:
 
 ```bash
 ffmpeg -i input.mkv \
-  -map 0:v:0 -map 0:a? -map 0:s? \
+  -map 0:v:0 -map 0:a? [-map 0:<text-subtitle-stream> | -sn] \
   -c:v copy -tag:v hvc1 \
   -c:a aac -b:a 192k -ac 2 \
-  -c:s mov_text \
+  [-c:s mov_text] \
   -movflags +faststart output-prepared.mp4
 ```
+
+Post-review hardening:
+
+- Text subtitles are detected with ffprobe before mapping. SRT/ASS/SSA/WebVTT
+  style subtitles are converted to `mov_text`; bitmap subtitles such as PGS or
+  VobSub are omitted with `-sn` instead of breaking fallback transcode.
+- If ffprobe cannot identify the primary video codec, remux first tries the
+  HEVC-safe `hvc1` tag and then retries without it. This preserves the fast
+  HEVC path without forcing full transcode on probe failure.
+- Full-screen shortcut follows macOS convention: Control-Command-F.
+- `AVPlayerLayer` resize disables implicit Core Animation actions to avoid
+  rubber-banding during live window resize.
+- Error banners now animate with the same transition context as media/preparing
+  state.
+- The generated bundle no longer declares the private IINA-specific MKV UTI.
 
 Full-file prepared output verified:
 
@@ -231,7 +249,7 @@ Inspect:
 
 - Empty state alignment.
 - Toolbar title and compatibility note truncation.
-- SwiftUI controls: play/pause, timeline, volume, speed, subtitle menu, and
+- SwiftUI controls: play/pause, timeline, mute, volume, speed, subtitle menu, and
   full screen.
 - Preparing overlay during MKV conversion.
 - Error banner when FFmpeg is missing or conversion fails.

@@ -36,6 +36,10 @@ final class MediaPreparationService {
             ffprobeURL: ffprobeURL,
             sourceURL: url
         )
+        let subtitleStreamIndex = try? await probeTextSubtitleStreamIndex(
+            ffprobeURL: ffprobeURL,
+            sourceURL: url
+        )
         let outputURL = try makePreparedOutputURL(for: url, variant: "prepared")
         if await Self.isNativelyPlayable(url: outputURL) {
             return PreparedMedia(
@@ -46,51 +50,42 @@ final class MediaPreparationService {
             )
         }
 
-        let remuxArguments = remuxArguments(
+        for usesHVC1Tag in hvc1TagAttempts(for: videoCodec) {
+            do {
+                try await runFFmpeg(
+                    executableURL: ffmpegURL,
+                    arguments: remuxArguments(
+                        sourceURL: url,
+                        outputURL: outputURL,
+                        usesHVC1Tag: usesHVC1Tag,
+                        subtitleStreamIndex: subtitleStreamIndex
+                    )
+                )
+
+                if await Self.isNativelyPlayable(url: outputURL) {
+                    return PreparedMedia(
+                        sourceURL: url,
+                        playbackURL: outputURL,
+                        compatibilityNote: "Prepared a temporary MP4 copy for AVFoundation playback.",
+                        durationOverride: sourceDuration
+                    )
+                }
+            } catch {
+                continue
+            }
+        }
+
+        let transcodeURL = try makePreparedOutputURL(for: url, variant: "transcoded")
+        let transcodeArguments = transcodeArguments(
             sourceURL: url,
-            outputURL: outputURL,
-            videoCodec: videoCodec
+            outputURL: transcodeURL,
+            subtitleStreamIndex: subtitleStreamIndex
         )
 
         do {
             try await runFFmpeg(
                 executableURL: ffmpegURL,
-                arguments: remuxArguments
-            )
-
-            if await Self.isNativelyPlayable(url: outputURL) {
-                return PreparedMedia(
-                    sourceURL: url,
-                    playbackURL: outputURL,
-                    compatibilityNote: "Prepared a temporary MP4 copy for AVFoundation playback.",
-                    durationOverride: sourceDuration
-                )
-            }
-        } catch {}
-
-        let transcodeURL = try makePreparedOutputURL(for: url, variant: "transcoded")
-
-        do {
-            try await runFFmpeg(
-                executableURL: ffmpegURL,
-                arguments: [
-                    "-hide_banner",
-                    "-y",
-                    "-i", url.path(percentEncoded: false),
-                    "-map", "0:v:0",
-                    "-map", "0:a?",
-                    "-map", "0:s?",
-                    "-c:v", "libx264",
-                    "-preset", "veryfast",
-                    "-crf", "20",
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-ac", "2",
-                    "-c:s", "mov_text",
-                    "-movflags", "+faststart",
-                    transcodeURL.path(percentEncoded: false)
-                ]
+                arguments: transcodeArguments
             )
         } catch {
             throw error
@@ -243,18 +238,74 @@ final class MediaPreparationService {
         return duration
     }
 
-    private func remuxArguments(sourceURL: URL, outputURL: URL, videoCodec: String?) -> [String] {
+    private func probeTextSubtitleStreamIndex(ffprobeURL: URL?, sourceURL: URL) async throws -> Int? {
+        guard let ffprobeURL else { return nil }
+
+        let output = try await runProcess(
+            executableURL: ffprobeURL,
+            arguments: [
+                "-v", "error",
+                "-select_streams", "s",
+                "-show_entries", "stream=index,codec_name",
+                "-of", "csv=p=0",
+                sourceURL.path(percentEncoded: false)
+            ]
+        )
+
+        let textSubtitleCodecs: Set<String> = [
+            "ass",
+            "mov_text",
+            "ssa",
+            "subrip",
+            "text",
+            "webvtt"
+        ]
+
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            guard parts.count >= 2,
+                  let index = Int(parts[0]),
+                  textSubtitleCodecs.contains(parts[1])
+            else {
+                continue
+            }
+
+            return index
+        }
+
+        return nil
+    }
+
+    private func hvc1TagAttempts(for videoCodec: String?) -> [Bool] {
+        if videoCodec == "hevc" {
+            return [true]
+        }
+
+        if videoCodec == nil {
+            return [true, false]
+        }
+
+        return [false]
+    }
+
+    private func remuxArguments(
+        sourceURL: URL,
+        outputURL: URL,
+        usesHVC1Tag: Bool,
+        subtitleStreamIndex: Int?
+    ) -> [String] {
         var arguments = [
             "-hide_banner",
             "-y",
             "-i", sourceURL.path(percentEncoded: false),
             "-map", "0:v:0",
             "-map", "0:a?",
-            "-map", "0:s?",
             "-c:v", "copy"
         ]
 
-        if videoCodec == "hevc" {
+        if usesHVC1Tag {
             arguments.append(contentsOf: ["-tag:v", "hvc1"])
         }
 
@@ -262,12 +313,53 @@ final class MediaPreparationService {
             "-c:a", "aac",
             "-b:a", "192k",
             "-ac", "2",
-            "-c:s", "mov_text",
+        ])
+        arguments.append(contentsOf: subtitleArguments(for: subtitleStreamIndex))
+        arguments.append(contentsOf: [
             "-movflags", "+faststart",
             outputURL.path(percentEncoded: false)
         ])
 
         return arguments
+    }
+
+    private func transcodeArguments(
+        sourceURL: URL,
+        outputURL: URL,
+        subtitleStreamIndex: Int?
+    ) -> [String] {
+        var arguments = [
+            "-hide_banner",
+            "-y",
+            "-i", sourceURL.path(percentEncoded: false),
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "20",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-ac", "2"
+        ]
+        arguments.append(contentsOf: subtitleArguments(for: subtitleStreamIndex))
+        arguments.append(contentsOf: [
+            "-movflags", "+faststart",
+            outputURL.path(percentEncoded: false)
+        ])
+
+        return arguments
+    }
+
+    private func subtitleArguments(for streamIndex: Int?) -> [String] {
+        guard let streamIndex else {
+            return ["-sn"]
+        }
+
+        return [
+            "-map", "0:\(streamIndex)",
+            "-c:s", "mov_text"
+        ]
     }
 
     private func runFFmpeg(executableURL: URL, arguments: [String]) async throws {

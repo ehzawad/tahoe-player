@@ -62,6 +62,12 @@ struct PlayerCommands: Commands {
             .keyboardShortcut(.rightArrow, modifiers: [.command])
             .disabled(!store.hasMedia)
 
+            Button(store.isMuted ? "Unmute" : "Mute") {
+                store.toggleMute()
+            }
+            .keyboardShortcut("m", modifiers: [])
+            .disabled(!store.hasMedia)
+
             Divider()
 
             Button("Reveal Source in Finder") {

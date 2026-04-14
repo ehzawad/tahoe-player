@@ -2,4 +2,5 @@
 .build/
 .codex/
 dist/
+Resources/AppIcon.iconset/
 Samples/

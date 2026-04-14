@@ -43,9 +43,16 @@ struct PlaybackControlsView: View {
                     Divider()
                         .frame(height: 24)
 
-                    Label("Volume", systemImage: store.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    Button {
+                        store.toggleMute()
+                    } label: {
+                        Label(
+                            store.isMuted ? "Unmute" : "Mute",
+                            systemImage: volumeSystemImage
+                        )
                         .labelStyle(.iconOnly)
-                        .foregroundStyle(.secondary)
+                    }
+                    .keyboardShortcut("m", modifiers: [])
 
                     Slider(value: $store.volume, in: 0...1)
                         .frame(width: 112)
@@ -85,7 +92,7 @@ struct PlaybackControlsView: View {
                         Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
                             .labelStyle(.iconOnly)
                     }
-                    .keyboardShortcut("f", modifiers: .command)
+                    .keyboardShortcut("f", modifiers: [.command, .control])
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -129,5 +136,13 @@ struct PlaybackControlsView: View {
 
     private func speedLabel(_ speed: Double) -> String {
         speed == 1 ? "1x" : "\(speed.formatted(.number.precision(.fractionLength(0...2))))x"
+    }
+
+    private var volumeSystemImage: String {
+        guard !store.isMuted, store.volume > 0 else {
+            return "speaker.slash.fill"
+        }
+
+        return store.volume < 0.45 ? "speaker.wave.1.fill" : "speaker.wave.2.fill"
     }
 }

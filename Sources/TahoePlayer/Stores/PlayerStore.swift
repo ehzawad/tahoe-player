@@ -26,9 +26,24 @@ final class PlayerStore {
     var isScrubbing = false
     var subtitleTracks = [SubtitleTrack.off]
     var selectedSubtitleID = SubtitleTrack.offID
+    var isMuted = false {
+        didSet {
+            player.isMuted = isMuted
+        }
+    }
     var volume = 0.9 {
         didSet {
-            player.volume = Float(max(0, min(volume, 1)))
+            let clampedVolume = max(0, min(volume, 1))
+            player.volume = Float(clampedVolume)
+
+            if clampedVolume > 0 {
+                lastAudibleVolume = clampedVolume
+                if isMuted {
+                    isMuted = false
+                }
+            } else if !isMuted {
+                isMuted = true
+            }
         }
     }
     var playbackRate = 1.0 {
@@ -52,11 +67,13 @@ final class PlayerStore {
     @ObservationIgnored private var loadingURL: URL?
     @ObservationIgnored private var legibleGroup: AVMediaSelectionGroup?
     @ObservationIgnored private var subtitleOptions: [String: AVMediaSelectionOption] = [:]
+    @ObservationIgnored private var lastAudibleVolume = 0.9
 
     // MARK: – Init
 
     init() {
         player.volume = Float(volume)
+        player.isMuted = isMuted
         installTimeObserver()
         installPlayerStatusObserver()
     }
@@ -190,6 +207,20 @@ final class PlayerStore {
 
     func toggleFullScreen() {
         (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
+    }
+
+    func toggleMute() {
+        if isMuted {
+            if volume == 0 {
+                volume = max(lastAudibleVolume, 0.1)
+            }
+            isMuted = false
+        } else {
+            if volume > 0 {
+                lastAudibleVolume = volume
+            }
+            isMuted = true
+        }
     }
 
     func selectSubtitle(id: String) {

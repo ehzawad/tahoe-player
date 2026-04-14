@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import QuartzCore
 import SwiftUI
 
 /// Minimal AppKit bridge for rendering AVPlayer video.
@@ -42,6 +43,9 @@ final class PlayerLayerView: NSView {
 
     override func layout() {
         super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         playerLayer.frame = bounds
+        CATransaction.commit()
     }
 }
