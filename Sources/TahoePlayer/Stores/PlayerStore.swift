@@ -8,10 +8,18 @@ import UniformTypeIdentifiers
 final class PlayerStore {
     // MARK: – Engine
 
-    @ObservationIgnored private let engine = AVFoundationPlaybackEngine()
+    enum Backend {
+        case avFoundation
+        case mpv
+    }
+
+    @ObservationIgnored private let avEngine = AVFoundationPlaybackEngine()
+    @ObservationIgnored let mpvEngine = MPVPlaybackEngine()
 
     /// Stable player reference for the surface view.
-    var player: AVPlayer { engine.avPlayer }
+    var player: AVPlayer { avEngine.avPlayer }
+    var activeBackend = Backend.avFoundation
+    var usesMPVPlayback: Bool { activeBackend == .mpv }
 
     // MARK: – UI State
 
@@ -29,12 +37,14 @@ final class PlayerStore {
     var isMuted = false {
         didSet {
             player.isMuted = isMuted
+            mpvEngine.setMuted(isMuted)
         }
     }
     var volume = 0.9 {
         didSet {
             let clampedVolume = max(0, min(volume, 1))
             player.volume = Float(clampedVolume)
+            mpvEngine.setVolume(clampedVolume)
 
             if clampedVolume > 0 {
                 lastAudibleVolume = clampedVolume
@@ -49,7 +59,12 @@ final class PlayerStore {
     var playbackRate = 1.0 {
         didSet {
             guard isPlaying else { return }
-            player.rate = Float(playbackRate)
+            switch activeBackend {
+            case .avFoundation:
+                player.rate = Float(playbackRate)
+            case .mpv:
+                mpvEngine.setPlaybackRate(playbackRate)
+            }
         }
     }
 
@@ -64,9 +79,11 @@ final class PlayerStore {
     @ObservationIgnored private var itemEndObserver: NSObjectProtocol?
     @ObservationIgnored private var itemStatusObservation: NSKeyValueObservation?
     @ObservationIgnored private var timeControlStatusObservation: NSKeyValueObservation?
+    @ObservationIgnored private var mpvPollingTask: Task<Void, Never>?
     @ObservationIgnored private var loadingURL: URL?
     @ObservationIgnored private var legibleGroup: AVMediaSelectionGroup?
     @ObservationIgnored private var subtitleOptions: [String: AVMediaSelectionOption] = [:]
+    @ObservationIgnored private var mpvSubtitleTrackIDs = Set<String>()
     @ObservationIgnored private var lastAudibleVolume = 0.9
 
     // MARK: – Init
@@ -74,13 +91,19 @@ final class PlayerStore {
     init() {
         player.volume = Float(volume)
         player.isMuted = isMuted
+        mpvEngine.setVolume(volume)
+        mpvEngine.setMuted(isMuted)
+        mpvEngine.onError = { [weak self] message in
+            self?.errorMessage = message
+        }
         installTimeObserver()
         installPlayerStatusObserver()
     }
 
     isolated deinit {
+        mpvPollingTask?.cancel()
         if let timeObserver {
-            engine.avPlayer.removeTimeObserver(timeObserver)
+            avEngine.avPlayer.removeTimeObserver(timeObserver)
         }
 
         if let itemEndObserver {
@@ -115,6 +138,7 @@ final class PlayerStore {
             return
         }
 
+        avEngine.cancelPreparation()
         loadingURL = url
         errorMessage = nil
         isPreparing = true
@@ -122,15 +146,29 @@ final class PlayerStore {
         duration = 0
         resetSubtitleTracks()
 
-        let canPlayDirectly = await engine.canAttemptPlayback(of: url)
-        preparationMessage = canPlayDirectly
-            ? "Opening \(url.lastPathComponent)…"
-            : "Converting the container, audio, and subtitles for AVPlayer. Large MKV files can take a few minutes."
+        let useMPV = MPVPlaybackEngine.prefersDirectPlayback(for: url)
+        activeBackend = useMPV ? .mpv : .avFoundation
+        preparationMessage = useMPV
+            ? "Opening \(url.lastPathComponent) directly with libmpv…"
+            : "Opening \(url.lastPathComponent)…"
 
         do {
             clearItemObservers()
+            stopMPVPolling()
 
-            let prepared = try await engine.load(url: url)
+            let prepared: PreparedMedia
+            if useMPV {
+                avEngine.pause()
+                prepared = try await mpvEngine.load(url: url)
+            } else {
+                mpvEngine.pause()
+                let canPlayDirectly = await avEngine.canAttemptPlayback(of: url)
+                if !canPlayDirectly {
+                    preparationMessage = "Converting the container, audio, and subtitles for AVPlayer. Large files can take a few minutes."
+                }
+                prepared = try await avEngine.load(url: url)
+            }
+
             guard loadingURL == url else { return }
 
             media = MediaFile(
@@ -140,10 +178,13 @@ final class PlayerStore {
                 compatibilityNote: prepared.compatibilityNote
             )
             currentTime = 0
-            duration = engine.duration
+            duration = useMPV ? mpvEngine.duration : avEngine.duration
             isPreparing = false
 
-            if let item = engine.avPlayer.currentItem {
+            if useMPV {
+                refreshMPVSubtitleTracks()
+                startMPVPolling()
+            } else if let item = avEngine.avPlayer.currentItem {
                 installObservers(for: item)
                 await refreshSubtitleTracks(for: item)
             }
@@ -188,12 +229,23 @@ final class PlayerStore {
     // MARK: – Transport (for menu commands)
 
     func play() {
-        guard player.currentItem != nil else { return }
-        player.rate = Float(playbackRate)
+        switch activeBackend {
+        case .avFoundation:
+            guard player.currentItem != nil else { return }
+            player.rate = Float(playbackRate)
+        case .mpv:
+            guard media != nil else { return }
+            mpvEngine.play(rate: playbackRate)
+        }
     }
 
     func pause() {
-        engine.pause()
+        switch activeBackend {
+        case .avFoundation:
+            avEngine.pause()
+        case .mpv:
+            mpvEngine.pause()
+        }
     }
 
     func togglePlayback() {
@@ -212,7 +264,7 @@ final class PlayerStore {
     func finishSeek() {
         let target = clampedPlaybackTime(currentTime)
         currentTime = target
-        engine.seek(to: target) { [weak self] in
+        seekActiveBackend(to: target) { [weak self] in
             self?.isScrubbing = false
         }
     }
@@ -220,7 +272,7 @@ final class PlayerStore {
     func seek(to seconds: Double) {
         let target = clampedPlaybackTime(seconds)
         currentTime = target
-        engine.seek(to: target)
+        seekActiveBackend(to: target)
     }
 
     func toggleFullScreen() {
@@ -241,12 +293,27 @@ final class PlayerStore {
         }
     }
 
+    func adjustVolume(by delta: Double) {
+        volume = max(0, min(volume + delta, 1))
+    }
+
     func selectSubtitle(id: String) {
+        if activeBackend == .mpv {
+            let normalizedID = id == SubtitleTrack.offID || mpvSubtitleTrackIDs.contains(id)
+                ? id
+                : SubtitleTrack.offID
+            selectedSubtitleID = normalizedID
+            mpvEngine.selectSubtitle(id: normalizedID)
+            refreshMPVSubtitleTracks()
+            return
+        }
+
         let normalizedID = id == SubtitleTrack.offID || subtitleOptions[id] != nil
             ? id
             : SubtitleTrack.offID
         selectedSubtitleID = normalizedID
 
+        guard activeBackend == .avFoundation else { return }
         guard let item = player.currentItem, let legibleGroup else { return }
         item.select(subtitleOptions[normalizedID], in: legibleGroup)
     }
@@ -263,19 +330,22 @@ final class PlayerStore {
     }
 
     func shutdown() {
-        engine.pause()
-        engine.cancelPreparation()
+        avEngine.pause()
+        avEngine.cancelPreparation()
+        mpvEngine.shutdown()
+        stopMPVPolling()
     }
 
     // MARK: – Observers
 
     private func installTimeObserver() {
-        timeObserver = engine.avPlayer.addPeriodicTimeObserver(
+        timeObserver = avEngine.avPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
             Task { @MainActor in
                 guard let self else { return }
+                guard self.activeBackend == .avFoundation else { return }
                 let seconds = time.seconds
                 guard seconds.isFinite else { return }
                 guard !self.isScrubbing else { return }
@@ -285,10 +355,11 @@ final class PlayerStore {
     }
 
     private func installPlayerStatusObserver() {
-        timeControlStatusObservation = engine.avPlayer.observe(
+        timeControlStatusObservation = avEngine.avPlayer.observe(
             \.timeControlStatus, options: [.initial, .new]
         ) { [weak self] player, _ in
             Task { @MainActor in
+                guard self?.activeBackend == .avFoundation else { return }
                 self?.isPlaying = player.timeControlStatus == .playing
             }
         }
@@ -348,9 +419,25 @@ final class PlayerStore {
         item.select(nil, in: group)
     }
 
+    private func refreshMPVSubtitleTracks() {
+        let state = mpvEngine.subtitleState()
+        let ids = Set(state.tracks.map(\.id))
+        mpvSubtitleTrackIDs = ids
+
+        if subtitleTracks != state.tracks {
+            subtitleTracks = state.tracks
+        }
+
+        let selectedID = ids.contains(state.selectedID) ? state.selectedID : SubtitleTrack.offID
+        if selectedSubtitleID != selectedID {
+            selectedSubtitleID = selectedID
+        }
+    }
+
     private func resetSubtitleTracks() {
         legibleGroup = nil
         subtitleOptions = [:]
+        mpvSubtitleTrackIDs = []
         subtitleTracks = [SubtitleTrack.off]
         selectedSubtitleID = SubtitleTrack.offID
     }
@@ -372,6 +459,43 @@ final class PlayerStore {
         guard seconds.isFinite else { return 0 }
         guard duration > 0 else { return 0 }
         return max(0, min(seconds, duration))
+    }
+
+    private func seekActiveBackend(to seconds: Double, completion: @escaping @MainActor () -> Void = {}) {
+        switch activeBackend {
+        case .avFoundation:
+            avEngine.seek(to: seconds, completion: completion)
+        case .mpv:
+            mpvEngine.seek(to: seconds, completion: completion)
+        }
+    }
+
+    private func startMPVPolling() {
+        mpvPollingTask?.cancel()
+        mpvPollingTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.activeBackend == .mpv else { return }
+                self.mpvEngine.drainEvents()
+                self.refreshMPVSubtitleTracks()
+
+                if !self.isScrubbing {
+                    self.currentTime = self.mpvEngine.currentTime
+                }
+
+                let mpvDuration = self.mpvEngine.duration
+                if mpvDuration.isFinite, mpvDuration > 0 {
+                    self.duration = mpvDuration
+                }
+                self.isPlaying = self.mpvEngine.isPlaying
+
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    private func stopMPVPolling() {
+        mpvPollingTask?.cancel()
+        mpvPollingTask = nil
     }
 
     // MARK: – Supported Types

@@ -6,7 +6,7 @@ struct TahoePlayerApp: App {
     @State private var playerStore = PlayerStore()
 
     var body: some Scene {
-        WindowGroup("Tahoe Player") {
+        Window("Tahoe Player", id: "player") {
             ContentView()
                 .environment(playerStore)
                 .onAppear {
@@ -53,13 +53,25 @@ struct PlayerCommands: Commands {
             Button("Skip Back 10 Seconds") {
                 store.skip(by: -10)
             }
-            .keyboardShortcut(.leftArrow, modifiers: [.command])
+            .keyboardShortcut(.leftArrow, modifiers: [])
             .disabled(!store.hasMedia)
 
             Button("Skip Forward 10 Seconds") {
                 store.skip(by: 10)
             }
-            .keyboardShortcut(.rightArrow, modifiers: [.command])
+            .keyboardShortcut(.rightArrow, modifiers: [])
+            .disabled(!store.hasMedia)
+
+            Button("Volume Up") {
+                store.adjustVolume(by: 0.05)
+            }
+            .keyboardShortcut(.upArrow, modifiers: [])
+            .disabled(!store.hasMedia)
+
+            Button("Volume Down") {
+                store.adjustVolume(by: -0.05)
+            }
+            .keyboardShortcut(.downArrow, modifiers: [])
             .disabled(!store.hasMedia)
 
             Button(store.isMuted ? "Unmute" : "Mute") {

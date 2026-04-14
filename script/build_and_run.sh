@@ -27,6 +27,7 @@ DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
@@ -40,7 +41,7 @@ swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
 
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+mkdir -p "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 if [[ -f "$APP_ICON" ]]; then
@@ -98,9 +99,106 @@ cat >"$INFO_PLIST" <<PLIST
 </plist>
 PLIST
 
+is_bundled_dependency() {
+  local path="$1"
+  [[ "$path" == "$BREW_PREFIX/"* ]]
+}
+
+is_already_bundled() {
+  local path="$1"
+  local bundled
+  for bundled in "${BUNDLED_DYLIBS[@]}"; do
+    [[ "$bundled" == "__sentinel__" ]] && continue
+    if [[ "$bundled" == "$path" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+read_linked_dylibs() {
+  local binary="$1"
+  otool -L "$binary" | awk 'NR > 1 {print $1}'
+}
+
+run_install_name_tool() {
+  install_name_tool "$@" 2> >(grep -v "warning: changes being made to the file will invalidate the code signature" >&2)
+}
+
+run_codesign() {
+  codesign "$@" 2> >(grep -v "replacing existing signature" >&2)
+}
+
+bundle_dylib_tree() {
+  local path="$1"
+  if ! is_bundled_dependency "$path"; then
+    return
+  fi
+  if [[ ! -f "$path" ]]; then
+    echo "warning: linked dependency not found: $path" >&2
+    return
+  fi
+  if is_already_bundled "$path"; then
+    return
+  fi
+
+  local basename destination dependency
+  basename="$(basename "$path")"
+  destination="$APP_FRAMEWORKS/$basename"
+  cp -f "$path" "$destination"
+  chmod u+w "$destination"
+  BUNDLED_DYLIBS+=("$path")
+
+  while IFS= read -r dependency; do
+    bundle_dylib_tree "$dependency"
+  done < <(read_linked_dylibs "$destination")
+}
+
+rewrite_dylib_load_commands() {
+  local target="$1"
+  local dependency replacement
+  for dependency in "${BUNDLED_DYLIBS[@]}"; do
+    [[ "$dependency" == "__sentinel__" ]] && continue
+    replacement="$2/$(basename "$dependency")"
+    if otool -L "$target" | grep -Fq "$dependency"; then
+      run_install_name_tool -change "$dependency" "$replacement" "$target"
+    fi
+  done
+}
+
+bundle_and_sign_homebrew_dylibs() {
+  BREW_PREFIX="$(brew --prefix)"
+  BUNDLED_DYLIBS=("__sentinel__")
+
+  local dependency bundled_path
+  while IFS= read -r dependency; do
+    bundle_dylib_tree "$dependency"
+  done < <(read_linked_dylibs "$APP_BINARY")
+
+  if [[ ${#BUNDLED_DYLIBS[@]} -le 1 ]]; then
+    run_codesign --force --sign - "$APP_BUNDLE"
+    return
+  fi
+
+  run_install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BINARY"
+  rewrite_dylib_load_commands "$APP_BINARY" "@executable_path/../Frameworks"
+
+  for dependency in "${BUNDLED_DYLIBS[@]}"; do
+    [[ "$dependency" == "__sentinel__" ]] && continue
+    bundled_path="$APP_FRAMEWORKS/$(basename "$dependency")"
+    run_install_name_tool -id "@rpath/$(basename "$dependency")" "$bundled_path"
+    rewrite_dylib_load_commands "$bundled_path" "@loader_path"
+    run_codesign --force --sign - "$bundled_path"
+  done
+
+  run_codesign --force --sign - "$APP_BUNDLE"
+}
+
+bundle_and_sign_homebrew_dylibs
+
 open_app() {
   if [[ ${#OPEN_FILES[@]} -gt 0 ]]; then
-    /usr/bin/open -n -F --env "TAHOEPLAYER_OPEN_FILE=${OPEN_FILES[0]}" "$APP_BUNDLE"
+    /usr/bin/open -n -F -a "$APP_BUNDLE" "${OPEN_FILES[@]}"
   else
     /usr/bin/open -n -F "$APP_BUNDLE"
   fi

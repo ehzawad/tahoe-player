@@ -2,14 +2,35 @@ import SwiftUI
 
 struct PlaybackControlsView: View {
     @Bindable var store: PlayerStore
+    let onResetDrag: () -> Void
+    let onDragBegan: () -> Void
+    let onDragDelta: (CGSize) -> Void
+    let onDragEnded: () -> Void
+
+    @State private var isDraggingHandle = false
 
     private let speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
+    init(
+        store: PlayerStore,
+        onResetDrag: @escaping () -> Void = {},
+        onDragBegan: @escaping () -> Void = {},
+        onDragDelta: @escaping (CGSize) -> Void = { _ in },
+        onDragEnded: @escaping () -> Void = {}
+    ) {
+        self.store = store
+        self.onResetDrag = onResetDrag
+        self.onDragBegan = onDragBegan
+        self.onDragDelta = onDragDelta
+        self.onDragEnded = onDragEnded
+    }
+
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
+            dragHandle
             timeline
 
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Button {
                     store.skip(by: -10)
                 } label: {
@@ -27,7 +48,7 @@ struct PlaybackControlsView: View {
                     .labelStyle(.iconOnly)
                     .font(.title3.weight(.semibold))
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.borderedProminent)
 
                 Button {
                     store.skip(by: 10)
@@ -50,7 +71,7 @@ struct PlaybackControlsView: View {
                 }
 
                 Slider(value: $store.volume, in: 0...1)
-                    .frame(width: 112)
+                    .frame(width: 82)
                     .accessibilityLabel("Volume")
 
                 Picker("Speed", selection: $store.playbackRate) {
@@ -60,7 +81,7 @@ struct PlaybackControlsView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: 92)
+                .frame(width: 78)
 
                 if store.subtitleTracks.count > 1 {
                     Menu {
@@ -77,8 +98,10 @@ struct PlaybackControlsView: View {
                         }
                     } label: {
                         Label(store.selectedSubtitleTitle, systemImage: "captions.bubble")
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
-                    .frame(width: 148)
+                    .frame(width: 126)
                 }
 
                 Button {
@@ -89,12 +112,45 @@ struct PlaybackControlsView: View {
                 }
                 .keyboardShortcut("f", modifiers: [.command, .control])
             }
-            .buttonStyle(.glass)
-            .controlSize(.large)
+            .buttonStyle(.borderless)
+            .controlSize(.regular)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.black.opacity(0.82))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        }
+    }
+
+    private var dragHandle: some View {
+        Capsule(style: .continuous)
+            .fill(Color.secondary.opacity(0.65))
+            .frame(width: 42, height: 5)
+            .frame(maxWidth: .infinity, minHeight: 16)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2, perform: onResetDrag)
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        if !isDraggingHandle {
+                            isDraggingHandle = true
+                            onDragBegan()
+                        }
+                        onDragDelta(value.translation)
+                    }
+                    .onEnded { _ in
+                        isDraggingHandle = false
+                        onDragEnded()
+                    }
+            )
+            .accessibilityLabel("Move Playback Controls")
+            .accessibilityHint("Drag to move the floating controls. Double-click to reset.")
     }
 
     private var timeline: some View {

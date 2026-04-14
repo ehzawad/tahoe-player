@@ -12,7 +12,7 @@ struct ContentView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            PlayerSurfaceView(player: store.player) {
+            PlayerSurfaceView(store: store) {
                 store.toggleFullScreen()
             }
                 .ignoresSafeArea()
@@ -28,11 +28,8 @@ struct ContentView: View {
             }
 
             if store.hasMedia {
-                PlaybackControlsView(store: store)
-                    .frame(maxWidth: 1040)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 18)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
+                FloatingPlaybackControlsOverlay(store: store)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
@@ -160,7 +157,7 @@ private struct EmptyPlayerView: View {
                 Text("Open a local video")
                     .font(.system(.largeTitle, design: .rounded, weight: .semibold))
 
-                Text("MP4 and MOV play natively. MKV and WebM are prepared into a temporary MP4 when FFmpeg is available.")
+                Text("MP4 and MOV use AVFoundation. MKV, WebM, AVI, and transport streams play directly with libmpv.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

@@ -1,6 +1,14 @@
 .DS_Store
 .build/
+.swiftpm/
 .codex/
 dist/
+DerivedData/
+*.dSYM/
+*.xcresult/
+*.log
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
 Resources/AppIcon.iconset/
 Samples/

@@ -5,6 +5,8 @@ import Foundation
 @MainActor
 final class MediaPreparationService {
     private var activeProcess: Process?
+    private let probeTimeout: TimeInterval = 15
+    private let preparationTimeout: TimeInterval = 45 * 60
 
     deinit {
         activeProcess?.terminate()
@@ -196,6 +198,7 @@ final class MediaPreparationService {
 
         let output = try await runProcess(
             executableURL: ffprobeURL,
+            timeout: probeTimeout,
             arguments: [
                 "-v", "error",
                 "-select_streams", "v:0",
@@ -216,6 +219,7 @@ final class MediaPreparationService {
 
         let output = try await runProcess(
             executableURL: ffprobeURL,
+            timeout: probeTimeout,
             arguments: [
                 "-v", "error",
                 "-show_entries", "format=duration",
@@ -243,6 +247,7 @@ final class MediaPreparationService {
 
         let output = try await runProcess(
             executableURL: ffprobeURL,
+            timeout: probeTimeout,
             arguments: [
                 "-v", "error",
                 "-select_streams", "s",
@@ -363,7 +368,11 @@ final class MediaPreparationService {
     }
 
     private func runFFmpeg(executableURL: URL, arguments: [String]) async throws {
-        _ = try await runProcess(executableURL: executableURL, arguments: arguments)
+        _ = try await runProcess(
+            executableURL: executableURL,
+            timeout: preparationTimeout,
+            arguments: arguments
+        )
     }
 
     private func stopActivePreparation() {
@@ -373,23 +382,63 @@ final class MediaPreparationService {
         activeProcess = nil
     }
 
-    private func runProcess(executableURL: URL, arguments: [String]) async throws -> String {
+    private func runProcess(
+        executableURL: URL,
+        timeout: TimeInterval,
+        arguments: [String]
+    ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let pipe = Pipe()
+            let state = ProcessRunState(continuation: continuation)
+            let timeoutNanoseconds = UInt64(max(timeout, 1) * 1_000_000_000)
 
             process.executableURL = executableURL
             process.arguments = arguments
             process.standardOutput = pipe
             process.standardError = pipe
+
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if !chunk.isEmpty {
+                    state.append(chunk)
+                }
+            }
+
+            let timeoutTask = Task { [weak process] in
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                guard !Task.isCancelled else { return }
+
+                if process?.isRunning == true {
+                    process?.terminate()
+                }
+
+                state.resume(
+                    throwing: MediaPreparationError.processTimedOut(
+                        executableURL.lastPathComponent,
+                        timeout,
+                        state.outputString()
+                    )
+                )
+            }
+
             process.terminationHandler = { process in
-                let output = pipe.fileHandleForReading.readDataToEndOfFile()
-                let message = String(data: output, encoding: .utf8) ?? ""
+                timeoutTask.cancel()
+                pipe.fileHandleForReading.readabilityHandler = nil
+                let remainingOutput = pipe.fileHandleForReading.readDataToEndOfFile()
+                state.append(remainingOutput)
+                let message = state.outputString()
+
+                Task { @MainActor [weak self] in
+                    if self?.activeProcess === process {
+                        self?.activeProcess = nil
+                    }
+                }
 
                 if process.terminationStatus == 0 {
-                    continuation.resume(returning: message)
+                    state.resume(returning: message)
                 } else {
-                    continuation.resume(throwing: MediaPreparationError.ffmpegFailed(message))
+                    state.resume(throwing: MediaPreparationError.ffmpegFailed(message))
                 }
             }
 
@@ -397,7 +446,10 @@ final class MediaPreparationService {
                 activeProcess = process
                 try process.run()
             } catch {
-                continuation.resume(throwing: error)
+                timeoutTask.cancel()
+                pipe.fileHandleForReading.readabilityHandler = nil
+                activeProcess = nil
+                state.resume(throwing: error)
             }
         }
     }
@@ -407,15 +459,61 @@ enum MediaPreparationError: LocalizedError {
     case ffmpegMissing
     case ffmpegFailed(String)
     case preparedFileNotPlayable
+    case processTimedOut(String, TimeInterval, String)
 
     var errorDescription: String? {
         switch self {
         case .ffmpegMissing:
-            "This file is not playable by AVFoundation, and FFmpeg was not found. Install FFmpeg with Homebrew to prepare MKV/WebM files."
+            "This file is not playable by AVFoundation, and FFmpeg was not found. Install FFmpeg with Homebrew to prepare a fallback MP4."
         case .ffmpegFailed(let output):
-            "FFmpeg could not prepare this media.\n\(output.trimmedForDisplay(limit: 900))"
+            "FFmpeg could not prepare fallback AVFoundation media.\n\(output.trimmedForDisplay(limit: 900))"
         case .preparedFileNotPlayable:
             "The prepared MP4 file still is not playable by AVFoundation."
+        case .processTimedOut(let executable, let timeout, let output):
+            "\(executable) did not finish within \(Int(timeout)) seconds.\n\(output.trimmedForDisplay(limit: 900))"
         }
+    }
+}
+
+private final class ProcessRunState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var output = Data()
+    private var didResume = false
+    private let continuation: CheckedContinuation<String, Error>
+
+    init(continuation: CheckedContinuation<String, Error>) {
+        self.continuation = continuation
+    }
+
+    func append(_ data: Data) {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        output.append(data)
+        lock.unlock()
+    }
+
+    func outputString() -> String {
+        lock.lock()
+        let data = output
+        lock.unlock()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    func resume(returning value: String) {
+        guard markResumed() else { return }
+        continuation.resume(returning: value)
+    }
+
+    func resume(throwing error: Error) {
+        guard markResumed() else { return }
+        continuation.resume(throwing: error)
+    }
+
+    private func markResumed() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didResume else { return false }
+        didResume = true
+        return true
     }
 }

@@ -3,9 +3,9 @@ import AVFoundation
 /// AVFoundation-backed playback engine.
 ///
 /// Natively playable files (MP4, MOV, most AAC/H.264/HEVC content)
-/// load directly into AVPlayer. Other containers (MKV, WebM) are
-/// handed to ``MediaPreparationService``, which remuxes via FFmpeg
-/// when available.
+/// load directly into AVPlayer. Broad containers that Tahoe routes to libmpv
+/// never reach this engine; files that stay on the AVFoundation path can still
+/// be prepared by ``MediaPreparationService`` when needed.
 final class AVFoundationPlaybackEngine: PlaybackEngine {
     let avPlayer = AVPlayer()
     private let preparer = MediaPreparationService()
